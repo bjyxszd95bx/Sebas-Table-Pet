@@ -764,7 +764,7 @@ class SebPet(tk.Tk):
             return "本次散步：🐸 * 0"
 
         if self.frog_seen and not self.frog_caught:
-            return "刚刚在草丛遇到了小青蛙..."
+            return "刚刚遇到了小青蛙..."
 
         return ""
 
