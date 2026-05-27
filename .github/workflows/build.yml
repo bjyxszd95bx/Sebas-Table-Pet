@@ -1,57 +1,54 @@
 name: Build App
 
 on:
-push:
+  push:
+  workflow_dispatch:
 
 jobs:
-build-windows:
-runs-on: windows-latest
+  build-windows:
+    runs-on: windows-latest
 
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  - name: Install Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-  - name: Install Dependencies
-    run: |
-      pip install pillow pyinstaller
+      - name: Install Dependencies
+        run: pip install pillow pyinstaller
 
-  - name: Build EXE
-    run: |
-      pyinstaller -w --noupx --clean --icon=app.ico --add-data "zy;zy" main.py
+      - name: Build EXE
+        run: pyinstaller -w --noupx --clean --icon=app.ico --add-data "zy;zy" main.py
 
-  - name: Upload Windows Build
-    uses: actions/upload-artifact@v4
-    with:
-      name: windows-build
-      path: dist/*
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/*
 
-build-macos:
-runs-on: macos-latest
+  build-macos:
+    runs-on: macos-latest
 
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  - name: Install Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-  - name: Install Dependencies
-    run: |
-      pip install pillow pyinstaller
+      - name: Install Dependencies
+        run: pip install pillow pyinstaller
 
-  - name: Build APP
-    run: |
-      pyinstaller -w --clean --icon=app.icns --add-data "zy:zy" main.py
+      - name: Build APP
+        run: pyinstaller -w --clean --add-data "zy:zy" main.py
 
-  - name: Upload Mac Build
-    uses: actions/upload-artifact@v4
-    with:
-      name: mac-build
-      path: dist/*
+      - name: Upload Mac Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: dist/*
