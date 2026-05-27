@@ -13,7 +13,7 @@ SPEED = 3
 CHANGE_DIR_TIME = 3500
 EDGE_MARGIN = 50
 MOVE_INTERVAL = 20
-IDLE_TIME = 5*1000
+IDLE_TIME = 10*1000
 
 # 样式
 OUTER_BORDER = "#7f360d"
@@ -1212,7 +1212,7 @@ class SebPet(tk.Tk):
                 if now - self.last_walk_event_check >= self.walk_event_cooldown:
                     self.last_walk_event_check = now
                     frog_roll = random.random()
-                    frog_chance = max(0.3, 0.7 - self.total_frog_caught * 0.1)
+                    frog_chance = max(0.3, 0.7 - self.total_frog_caught * 0.15)
 
                     if not self.walk_frog_used and frog_roll < frog_chance:
                         self.pause_walk_event(
