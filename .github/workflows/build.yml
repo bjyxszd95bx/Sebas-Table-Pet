@@ -7,7 +7,6 @@ jobs:
 build-windows:
 runs-on: windows-latest
 
-```
 steps:
   - name: Checkout
     uses: actions/checkout@v4
@@ -30,12 +29,10 @@ steps:
     with:
       name: windows-build
       path: dist/*
-```
 
 build-macos:
 runs-on: macos-latest
 
-```
 steps:
   - name: Checkout
     uses: actions/checkout@v4
@@ -58,4 +55,3 @@ steps:
     with:
       name: mac-build
       path: dist/*
-```
