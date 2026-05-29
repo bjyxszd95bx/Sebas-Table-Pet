@@ -13,7 +13,11 @@ SPEED = 3
 CHANGE_DIR_TIME = 3500
 EDGE_MARGIN = 50
 MOVE_INTERVAL = 20
-IDLE_TIME = 10*1000
+IDLE_TIME = 30*1000
+IDLE_ROTATE_MIN_TIME = 15 * 60 * 1000
+IDLE_ROTATE_MAX_TIME = 25 * 60 * 1000
+IDLE_ROTATE_TALK_CHANCE = 0.4
+IDLE_ROTATE_STANDBY_PAUSE = 30 * 1000
 
 # 样式
 OUTER_BORDER = "#7f360d"
@@ -72,17 +76,37 @@ FROG_DIALOGUES = [
     "到晚上温度就会舒适起来了。",
     "昨夜，我看到一群蝙蝠在湖边飞过。 看来到了他们去吃蚊子的季节了？",
     "在遇到你之前，我把自己的人生都耗费在逃避现实上……因为我觉得自己永远都得不到幸福。",
+    "我应该学学做饭。一定能派上大用场。",
+    "*哈欠*……我昨晚看一本书看到三点……",
 ]
 
 COMPUTER_DIALOGUES = [
     "我马上弄完。",
     "你来了。稍等一下…",
-    "再一分钟，好吗？",
+    "再等我一下，好吗？",
     "别走，我快结束了。",
     "有你在旁边还挺安心。",
     "马上，等我弄完这个模块。",
     "就差*这么*一点，就能在床上赖一整天了。要是成功了多好。"
 ]
+
+IDLE_END_DIALOGUES = {
+    "computer": [
+        "刚刚终于把模块整理好了。",
+        "代码终于跑通了。",
+        "刚把工作做完。",
+    ],
+    "piano": [
+        "刚刚练习了一会新曲。",
+        "有一段总弹不好…",
+        "今天的练习状态还不错。"
+    ],
+    "frog": [
+        "刚刚和小青蛙待了一会。",
+        "青蛙今天挺安静的。",
+        "回来看看你在做什么。"
+    ]
+}
 
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
@@ -246,6 +270,7 @@ EMOJI_PATHS = {
     "love": get_resource_path("zy/dis/biaoq/love.gif"),
     "music": get_resource_path("zy/dis/biaoq/music.gif"),
     "game": get_resource_path("zy/dis/biaoq/game.gif"),
+    "time": get_resource_path("zy/dis/biaoq/time.gif"),
 
 }
 
@@ -424,7 +449,7 @@ class SebPet(tk.Tk):
         self.frog_seen = False
         self.frog_caught = False
         self.last_walk_event_check = self.call("clock", "milliseconds")
-        self.walk_event_cooldown = 1000*60 * 0.5   # 散步随机事件
+        self.walk_event_cooldown = 1000*60 * 1   # 散步随机事件
         self.walk_event_playing = False
         self.force_anim = None
         self.mouse_hover = False
@@ -443,6 +468,8 @@ class SebPet(tk.Tk):
         self.cur_dir = random.choice(DIR_LIST)
         self.last_dir_change = self.call("clock", "milliseconds")
         self.in_computer = False
+        self.next_idle_rotate_time = None
+        self.idle_rotation_pending = False
         self.last_active = self.call("clock", "milliseconds")
 
         self.DRAG_THRESHOLD = 6  # 你可以改成 5~12 之间试手感
@@ -519,6 +546,87 @@ class SebPet(tk.Tk):
         self.gif["standbyFrog"] = (
             [ImageTk.PhotoImage(f) for f in frames],
             delays
+        )
+
+    def get_frog_idle_anim(self):
+        if self.total_frog_caught <= 1:
+            return "standbyFrog"
+        if self.total_frog_caught == 2:
+            return "standbyFrogs"
+        if self.total_frog_caught == 3:
+            return "standbyFrog3"
+        return "standbyFrog4"
+
+    def get_idle_types(self):
+        idle_types = ["computer", "piano"]
+
+        if self.total_frog_caught > 0:
+            idle_types.append("frog")
+
+        return idle_types
+
+    def pick_idle_type(self, exclude_type=None):
+        idle_types = self.get_idle_types()
+        candidates = [t for t in idle_types if t != exclude_type]
+
+        if not candidates:
+            candidates = idle_types
+
+        return random.choice(candidates)
+
+    def schedule_next_idle_rotation(self):
+        now = self.call("clock", "milliseconds")
+        delay = random.randint(int(IDLE_ROTATE_MIN_TIME), int(IDLE_ROTATE_MAX_TIME))
+        self.next_idle_rotate_time = now + delay
+
+    def enter_idle_type(self, idle_type, from_rotation=False):
+        if from_rotation and not self.idle_rotation_pending:
+            return
+
+        if self.walk_active or self.talking or self.dragging or self.menu_open:
+            return
+
+        self.idle_rotation_pending = False
+        self.in_computer = True
+        self.current_idle_type = idle_type
+        self.schedule_next_idle_rotation()
+        self.switch_anim()
+
+    def rotate_idle_type(self):
+        if not self.in_computer or not hasattr(self, 'current_idle_type'):
+            return
+
+        old_idle_type = self.current_idle_type
+        new_idle_type = self.pick_idle_type(exclude_type=old_idle_type)
+        should_talk = random.random() < IDLE_ROTATE_TALK_CHANCE
+
+        self.in_computer = False
+        self.next_idle_rotate_time = None
+        self.idle_rotation_pending = True
+        self.set_anim("standby")
+        
+        if should_talk:
+            text = random.choice(IDLE_END_DIALOGUES.get(old_idle_type, []))
+            if text:
+                close_delay = 3600
+                self.talking = True
+                self.show_chat_custom(text, close_delay=close_delay)
+                self.after(
+                    close_delay + IDLE_ROTATE_STANDBY_PAUSE,
+                    lambda idle_type=new_idle_type: self.enter_idle_type(
+                        idle_type,
+                        from_rotation=True
+                    )
+                )
+                return
+        else:
+            self.show_emoji("wuyu")
+        self.after(
+            IDLE_ROTATE_STANDBY_PAUSE,
+            lambda idle_type=new_idle_type: self.enter_idle_type(
+                idle_type,
+                from_rotation=True
+            )
         )
         
     def set_anim(self, anim_name):
@@ -625,9 +733,9 @@ class SebPet(tk.Tk):
                 self.after_cancel(self.click_timer)
             # self.click_timer = self.after(500, self.detect_click_pattern)
             behavior_roll = random.random()
-            if self.current_idle_anim == 'computer':
+            if self.current_idle_type == 'computer':
                 self.start_talk(COMPUTER_DIALOGUES)
-            elif self.current_idle_anim == 'piano':
+            elif self.current_idle_type == 'piano':
                 self.show_emoji("music")
             else:
                 if behavior_roll < 0.5:
@@ -856,8 +964,10 @@ class SebPet(tk.Tk):
             if self.in_computer:
                 # 退出待机状态，移除待机动画标识，确保切换为standby
                 self.in_computer = False
-                if hasattr(self, 'current_idle_anim'):
-                    del self.current_idle_anim
+                self.next_idle_rotate_time = None
+                self.idle_rotation_pending = False
+                if hasattr(self, 'current_idle_type'):
+                    del self.current_idle_type
                 # 强制切换为standby动画，避免受其他状态影响
                 self.set_anim("standby")
                 self.frame_idx = 0
@@ -873,8 +983,10 @@ class SebPet(tk.Tk):
 
     def reset_idle(self):
         self.last_active = self.call("clock", "milliseconds")
+        self.idle_rotation_pending = False
         if self.in_computer:
             self.in_computer = False
+            self.next_idle_rotate_time = None
             self.switch_anim()
 
     def on_enter(self, e):
@@ -944,35 +1056,25 @@ class SebPet(tk.Tk):
             self.set_anim("click")
         elif self.in_computer:
             # 进入待机后 只使用一次随机 不会因为鼠标悬浮重新刷新
-            if not hasattr(self, 'current_idle_anim'):
-                # 新增： "rain_idle" 只需IDLE_ANIMS.append("rain_idle")
+            if not hasattr(self, 'current_idle_type'):
+                # 新增： "rain_idle" 只需IDLE_TYPES.append("rain_idle")
 
-                IDLE_ANIMS = []
+                self.current_idle_type = self.pick_idle_type()
 
-                IDLE_ANIMS.append("computer")
-                IDLE_ANIMS.append("piano")
-
-                if self.total_frog_caught == 2:
-                    IDLE_ANIMS.append("standbyFrogs")
-                elif self.total_frog_caught == 1:
-                    IDLE_ANIMS.append("standbyFrog")
-                elif self.total_frog_caught == 3:
-                    IDLE_ANIMS.append("standbyFrog3")
-                elif self.total_frog_caught >= 4:
-                    IDLE_ANIMS.append("standbyFrog4")
-                
-
-                self.current_idle_anim = random.choice(IDLE_ANIMS)
-
-            
-            self.set_anim(self.current_idle_anim)
+            if self.current_idle_type == "frog":
+                self.set_anim(self.get_frog_idle_anim())
+            else:
+                self.set_anim(self.current_idle_type)
         elif self.talking:
             print("电脑待机状态下1")
             # ===== 电脑待机状态下 =====
             if self.in_computer:
                 print("电脑待机状态下2")
                 # 保持原待机动画
-                self.set_anim(self.current_idle_anim)
+                if self.current_idle_type == "frog":
+                    self.set_anim(self.get_frog_idle_anim())
+                else:
+                    self.set_anim(self.current_idle_type)
 
             else:
                 self.set_anim("standby")
@@ -1139,7 +1241,7 @@ class SebPet(tk.Tk):
 
         # ---------- 第一次：看到青蛙 ----------
         frog_roll = random.random()
-        if not self.frog_seen and frog_roll < 0.5:
+        if not self.frog_seen and frog_roll < 0.7:
 
             self.frog_seen = True
 
@@ -1212,7 +1314,7 @@ class SebPet(tk.Tk):
                 if now - self.last_walk_event_check >= self.walk_event_cooldown:
                     self.last_walk_event_check = now
                     frog_roll = random.random()
-                    frog_chance = max(0.3, 0.7 - self.total_frog_caught * 0.15)
+                    frog_chance = max(0.2, 0.6 - self.total_frog_caught * 0.15)
 
                     if not self.walk_frog_used and frog_roll < frog_chance:
                         self.pause_walk_event(
@@ -1290,12 +1392,17 @@ class SebPet(tk.Tk):
         now = self.call("clock", "milliseconds")
         if not self.walk_active and not self.talking and not self.dragging and not self.menu_open:
             if not self.mouse_hover and now - self.last_active >= IDLE_TIME:
-                if not self.in_computer:
+                if self.idle_rotation_pending:
+                    pass
+                elif not self.in_computer:
                     # 每次进入待机 重新随机一次
-                    if hasattr(self, 'current_idle_anim'):
-                        del self.current_idle_anim
+                    if hasattr(self, 'current_idle_type'):
+                        del self.current_idle_type
                     self.in_computer = True
+                    self.schedule_next_idle_rotation()
                     self.switch_anim()
+                elif self.next_idle_rotate_time is not None and now >= self.next_idle_rotate_time:
+                    self.rotate_idle_type()
         self.after(500, self.idle_loop)
 
     def start_talk(self,dialogues = DIALOGUES):
