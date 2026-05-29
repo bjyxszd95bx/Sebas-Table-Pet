@@ -2,11 +2,18 @@ import tkinter as tk
 import random
 import os
 import sys
+import subprocess
 from PIL import Image, ImageTk
 import json
 
 # 本地文件
 SAVE_PATH = "zy/dis/save.json"
+APP_NAME = "SebasTablePet"
+DEFAULT_SAVE_DATA = {
+    "frog_count": 0,
+    "auto_start": True,
+    "auto_start_tip_shown": False
+}
 # ==================== 基础配置 ====================
 WIDTH, HEIGHT = 70, 100
 SPEED = 3
@@ -405,20 +412,99 @@ def preload_all_gif():
 
 # 存青蛙次数，加载本地存储
 def load_save():
-    default_data = {"frog_count": 0}
+    default_data = DEFAULT_SAVE_DATA.copy()
     if not os.path.exists(SAVE_PATH):
         return default_data
     try:
         with open(SAVE_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return {"frog_count": data.get("frog_count", 0)}
+        default_data.update(data)
+        return default_data
     except:
         return default_data
 
 # 存青蛙次数，本地存储
 def save_data(data):
+    save_dir = os.path.dirname(SAVE_PATH)
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+
+    save_data_obj = load_save()
+    save_data_obj.update(data)
+
     with open(SAVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(save_data_obj, f, ensure_ascii=False, indent=2)
+
+def get_startup_shortcut_path():
+    startup_dir = os.path.join(
+        os.environ.get("APPDATA", ""),
+        "Microsoft",
+        "Windows",
+        "Start Menu",
+        "Programs",
+        "Startup"
+    )
+    return os.path.join(startup_dir, f"{APP_NAME}.lnk")
+
+def get_app_launch_info():
+    if getattr(sys, "frozen", False):
+        return sys.executable, "", os.path.dirname(sys.executable)
+
+    script_path = os.path.abspath(sys.argv[0])
+    return sys.executable, f'"{script_path}"', os.path.dirname(script_path)
+
+def powershell_quote(text):
+    return "'" + text.replace("'", "''") + "'"
+
+def register_auto_start():
+    if os.name != "nt":
+        return False
+
+    shortcut_path = get_startup_shortcut_path()
+    startup_dir = os.path.dirname(shortcut_path)
+    os.makedirs(startup_dir, exist_ok=True)
+
+    target_path, arguments, working_dir = get_app_launch_info()
+    command = (
+        "$shell = New-Object -ComObject WScript.Shell; "
+        f"$shortcut = $shell.CreateShortcut({powershell_quote(shortcut_path)}); "
+        f"$shortcut.TargetPath = {powershell_quote(target_path)}; "
+        f"$shortcut.Arguments = {powershell_quote(arguments)}; "
+        f"$shortcut.WorkingDirectory = {powershell_quote(working_dir)}; "
+        "$shortcut.Save()"
+    )
+
+    try:
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                command
+            ],
+            check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        return True
+    except Exception:
+        return False
+
+def unregister_auto_start():
+    if os.name != "nt":
+        return False
+
+    shortcut_path = get_startup_shortcut_path()
+    try:
+        if os.path.exists(shortcut_path):
+            os.remove(shortcut_path)
+        return True
+    except Exception:
+        return False
+
+def supports_auto_start():
+    return os.name == "nt"
 
 # ==================== 主程序 ====================
 class SebPet(tk.Tk):
@@ -427,6 +513,8 @@ class SebPet(tk.Tk):
         self.walk_frog_used = False
         save = load_save()
         self.total_frog_caught = save["frog_count"]
+        self.auto_start = save["auto_start"]
+        self.auto_start_tip_shown = save["auto_start_tip_shown"]
         self.cur_width = WIDTH
         self.cur_height = HEIGHT
         
@@ -497,18 +585,18 @@ class SebPet(tk.Tk):
 
         # 菜单
         self.menu_w = 130
-        self.menu_h = 178
+        self.menu_button_h = 28
+        self.menu_h = 0
+        self.menu_buttons = []
         self.right_menu = tk.Toplevel(self)
         self.right_menu.overrideredirect(True)
         self.right_menu.wm_attributes("-topmost", True)
         self.right_menu.config(bg=self.TRANS)
         self.right_menu.wm_attributes("-transparentcolor", self.TRANS)
+        self.right_menu.geometry(f"{self.menu_w}x{self.menu_h}")
         self.right_menu.withdraw()
 
-        tk.Frame(self.right_menu, bg=OUTER_BORDER).place(x=0,y=0,w=self.menu_w,h=self.menu_h)
-        tk.Frame(self.right_menu, bg=INNER_BORDER).place(x=4,y=4,w=self.menu_w-8,h=self.menu_h-8)
         c = tk.Frame(self.right_menu, bg=MAIN_BG)
-        c.place(x=7,y=7,w=self.menu_w-14,h=self.menu_h-14)
 
         btn = {"font":("微软雅黑",10), "bg":MAIN_BG, "fg":TEXT_COLOR, "bd":0, "relief":tk.FLAT, "anchor":"w"}
         self.b1 = tk.Button(c, text="💬 聊聊天", command=self.start_talk,** btn)
@@ -517,22 +605,39 @@ class SebPet(tk.Tk):
         self.b4 = tk.Button(c, text="😊 没事啦", command=self.hide_menu, **btn)
         self.b6 = tk.Button(c, text="❌ 退出程序", command=self.quit,** btn)
         self.b5 = tk.Button(c, text="📌 关于我", command=self.show_author,** btn)
+        self.b7 = tk.Button(c, text="", command=self.toggle_auto_start, **btn)
 
-        h = 28
-        self.b1.place(x=0,y=0,h=h)
-        self.b2.place(x=0,y=h,h=h)
-        self.b3.place(x=0,y=h*2,h=h)
-        self.b4.place(x=0,y=h*3,h=h)
-        self.b5.place(x=0,y=h*4,h=h)
-        self.b6.place(x=0,y=h*5,h=h)
+        self.menu_buttons = [
+            self.b1,
+            self.b2,
+            self.b3,
+            self.b4,
+            self.b5,
+            self.b6
+        ]
+        if supports_auto_start():
+            self.menu_buttons.insert(-1, self.b7)
+        self.menu_button_count = len(self.menu_buttons)
+        self.menu_h = self.menu_button_count * self.menu_button_h + 14
+        self.right_menu.geometry(f"{self.menu_w}x{self.menu_h}")
+        tk.Frame(self.right_menu, bg=OUTER_BORDER).place(x=0,y=0,w=self.menu_w,h=self.menu_h)
+        tk.Frame(self.right_menu, bg=INNER_BORDER).place(x=4,y=4,w=self.menu_w-8,h=self.menu_h-8)
+        c.place(x=7,y=7,w=self.menu_w-14,h=self.menu_h-14)
+        c.lift()
 
-        for b in [self.b1,self.b2,self.b3,self.b4,self.b5,self.b6]:
+        for idx, button in enumerate(self.menu_buttons):
+            button.place(x=0, y=self.menu_button_h * idx, h=self.menu_button_h)
+
+        self.update_auto_start_button()
+
+        for b in self.menu_buttons:
             b.bind("<Enter>", lambda e,btn=b: btn.config(bg="#d89a50"))
             b.bind("<Leave>", lambda e,btn=b: btn.config(bg=MAIN_BG))
 
         self.chat_win = None
         self.chat_height = 70
         self.hover_tip_win = None
+        self.sync_auto_start_on_launch()
         self.switch_anim()
         self.move_loop()
         self.idle_loop()
@@ -1066,7 +1171,6 @@ class SebPet(tk.Tk):
             else:
                 self.set_anim(self.current_idle_type)
         elif self.talking:
-            print("电脑待机状态下1")
             # ===== 电脑待机状态下 =====
             if self.in_computer:
                 print("电脑待机状态下2")
@@ -1095,6 +1199,7 @@ class SebPet(tk.Tk):
         self.reset_click_count()
         self.hide_emoji()
         self.menu_open = True
+        self.update_auto_start_button()
         self.right_menu.geometry(f"+{e.x_root}+{e.y_root}")
         self.right_menu.deiconify()
         self.right_menu.focus_set()
@@ -1105,6 +1210,68 @@ class SebPet(tk.Tk):
         self.right_menu.withdraw()
         self.menu_open = False
         self.switch_anim()
+
+    def update_auto_start_button(self):
+        if not supports_auto_start():
+            return
+
+        if self.auto_start:
+            self.b7.config(text="🚫 关闭自动开机")
+        else:
+            self.b7.config(text="✅ 开启自动开机")
+
+    def set_auto_start(self, enabled):
+        if not supports_auto_start():
+            return
+
+        if enabled:
+            register_auto_start()
+        else:
+            unregister_auto_start()
+
+        self.auto_start = enabled
+        should_show_tip = self.auto_start and not self.auto_start_tip_shown
+        if should_show_tip:
+            self.auto_start_tip_shown = True
+
+        save_data({
+            "auto_start": self.auto_start,
+            "auto_start_tip_shown": self.auto_start_tip_shown
+        })
+        self.update_auto_start_button()
+
+        if should_show_tip:
+            self.after(300, self.show_auto_start_tip)
+
+    def toggle_auto_start(self):
+        if not supports_auto_start():
+            return
+
+        self.set_auto_start(not self.auto_start)
+
+    def sync_auto_start_on_launch(self):
+        if not supports_auto_start():
+            return
+
+        if self.auto_start:
+            register_auto_start()
+            if not self.auto_start_tip_shown:
+                self.auto_start_tip_shown = True
+                save_data({
+                    "auto_start": self.auto_start,
+                    "auto_start_tip_shown": self.auto_start_tip_shown
+                })
+                self.after(800, self.show_auto_start_tip)
+        else:
+            unregister_auto_start()
+
+    def show_auto_start_tip(self):
+        self.talking = True
+        self.switch_anim()
+        self.show_chat_custom(
+            "我会在开机后自动出现，可以在菜单里关闭。",
+            close_delay=4200
+        )
 
     def start_walk(self):
         self.walk_frog_used = False
@@ -1241,7 +1408,7 @@ class SebPet(tk.Tk):
 
         # ---------- 第一次：看到青蛙 ----------
         frog_roll = random.random()
-        if not self.frog_seen and frog_roll < 0.7:
+        if not self.frog_seen and frog_roll < 0.6:
 
             self.frog_seen = True
 
